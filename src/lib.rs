@@ -18,7 +18,7 @@ fn change_version_string_hook(arg: u64, string: *const c_char) {
   let original_str = unsafe { skyline::from_c_str(string) };
   if original_str.contains("Ver.") {
       spawn_thread();
-      let version_str = format!("{}\nprc_to_xml.nro loaded!", original_str);
+      let version_str = format!("{}\nprc_to_xml.nro loaded!\0", original_str);
       call_original!(arg, skyline::c_str(&version_str))
   } else {
       call_original!(arg, string)
