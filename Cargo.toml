@@ -16,6 +16,7 @@ skyline_smash = { git = "https://github.com/ultimate-research/skyline-smash.git"
 prcx = { git = "https://github.com/techyCoder81/prcx.git", branch = "xml-style" }
 walkdir = "2"
 skyline-web = { git = "https://github.com/skyline-rs/skyline-web"}
+fs_extra = "1.2"
 
 [profile.dev]
 panic = "abort"

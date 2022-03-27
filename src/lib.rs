@@ -18,7 +18,8 @@ fn change_version_string_hook(arg: u64, string: *const c_char) {
   let original_str = unsafe { skyline::from_c_str(string) };
   if original_str.contains("Ver.") {
       spawn_thread();
-      call_original!(arg, string)
+      let version_str = format!("{}\nprc_to_xml.nro loaded!", original_str);
+      call_original!(arg, skyline::c_str(&version_str))
   } else {
       call_original!(arg, string)
   }
@@ -110,24 +111,55 @@ fn diff_prc_files(log_writer: &mut BufWriter<File>) {
     writer.flush().expect("could not flush???");
     deletions.push(format!("{}", path));
 
+
+    log(log_writer, format!("completed diffing and writing file: {}", path.clone()));
   }
 
   
   let should_delete = skyline_web::Dialog::no_yes("would you like to also delete the original .prc files on SD for each generated .prcxml file?");
   if should_delete {
+    log(log_writer, "begin deleting originals".to_string());
     for path in deletions {
       match std::fs::remove_file(path.clone()) {
         Ok(_) => {},
         Err(e) => log(log_writer, format!("could not delete file: {}\nError: {:?}", path.clone(), e))
       }
     }
+    log(log_writer, "completed deleting originals".to_string());
+  } else {
+    log(log_writer, "not deleting originals".to_string());
   }
+  
+
+  let should_move = skyline_web::Dialog::no_yes("would you like to move the newly generated xml files into the /ultimate/mods directory structure in place of the originals?");
+  if should_move {
+    log(log_writer, "begin moving xml over".to_string());
+    let options = fs_extra::dir::CopyOptions::new();
+    let generated_paths = std::fs::read_dir("sd:/xml/").unwrap();
+    for path in generated_paths {
+      let dir_entry = path.unwrap();
+      let source_path = dir_entry.path();
+      let source_str = source_path.as_os_str().to_str().unwrap();
+      let target_str = "sd:/ultimate/mods/";
+      log(log_writer, format!("moving from {} to {}", source_str, target_str));
+      match fs_extra::dir::move_dir(source_str, target_str, &options) {
+        Ok(_) => {},
+        Err(e) => log(log_writer, format!("could not copy generated files from {} to {}\nError: {:?}", source_str,  target_str, e))
+      }
+    }
+    log(log_writer, "completed moving xml over".to_string());
+  } else {
+    log(log_writer, "not moving generated xml over".to_string());
+  }
+
+
   let mut result_str: String = "PRC conversion to XML is complete. Output will be in /xml/ on root of sd. Failed files:".to_owned();
   for path in failures {
     result_str.push_str("\n");
     result_str.push_str(&path);
   }
-  skyline_web::DialogOk::ok(result_str);
+  skyline_web::DialogOk::ok(result_str.clone());
+  log(log_writer, result_str);
 }
 
 
@@ -140,7 +172,7 @@ pub fn main() {
 /// log the given string using println! and also to the given buffer
 pub fn log(log_writer: &mut BufWriter<File>, string: String) {
   println!("{}", string);
-  match log_writer.write(string.as_bytes()) {
+  match log_writer.write(format!("{}\n", string).as_bytes()) {
     Ok(_) => {},
     Err(e) => println!("logger failed to write to buffer with string: {}\nError:{:?}", string, e)
   }
