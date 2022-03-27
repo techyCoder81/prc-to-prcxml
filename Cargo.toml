@@ -13,9 +13,9 @@ crate-type = ["cdylib"]
 [dependencies]
 skyline = { git = "https://github.com/ultimate-research/skyline-rs.git" }
 skyline_smash = { git = "https://github.com/ultimate-research/skyline-smash.git" }
-prcx = { git = "https://github.com/blu-dev/prcx", branch = "xml-style" }
-prc-rs = { version = "1.3", feature = "xml" }
+prcx = { git = "https://github.com/techyCoder81/prcx.git", branch = "xml-style" }
 walkdir = "2"
+skyline-web = { git = "https://github.com/skyline-rs/skyline-web"}
 
 [profile.dev]
 panic = "abort"
