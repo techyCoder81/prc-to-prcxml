@@ -1,14 +1,9 @@
 #![feature(proc_macro_hygiene)]
 #![feature(allocator_api)]
-use skyline::{hook, install_hook};
-use prcx::*;
-use walkdir::WalkDir;
 use std::fs::File;
 use std::path::Path;
 use std::io::{BufWriter, Write};
 use std::thread;
-use std::time::Duration;
-use skyline_web::*;
 use skyline::libc::c_char;
 
 #[global_allocator]
@@ -29,41 +24,40 @@ fn change_version_string_hook(arg: u64, string: *const c_char) {
   }
 }
 
-fn diff_prc_files() {
-  println!("starting diff of files");
+fn diff_prc_files(log_writer: &mut BufWriter<File>) {
+  log(log_writer, "starting diff of files".to_string());
   let mut paths = vec![]; 
   let mut deletions = vec![];
   let mut failures = vec![];
-  println!("made paths vec");
+  log(log_writer, "made paths vec".to_string());
   let dir = walkdir::WalkDir::new("sd:/ultimate/mods/");
-  println!("made walkable dir");
+  log(log_writer, "made walkable dir".to_string());
   for entry in dir {
     if entry.is_err() {
-      println!("error!");
+      log(log_writer, "error!".to_string());
       continue;
     }
     let path_entry = entry.expect("no entry found during walk!");
     match path_entry.path().extension() {
       Some(extension) => {
         let path_name = path_entry.path().as_os_str().to_str().expect("error while turning path into string!");
-        println!("checking path: {}", path_name);
-        let path_str = path_name;
+        log(log_writer, format!("checking path: {}", path_name));
         if extension == "prc" {
-          println!("adding path: {}", path_name);
+          log(log_writer, format!("adding path: {}", path_name));
           paths.push(format!("{}", path_name));
         } else {
-          println!("ignoring path.");
+          log(log_writer,  "ignoring path.".to_string());
         }
       },
       None => {}
     }
   }
   for path in paths {
-    println!("\noriginal path: {}", path);
+    log(log_writer, format!("\noriginal path: {}", path));
     let cleaned_path = path.replace("sd:/ultimate/mods/", "");
-    println!("cleaned path: {}", cleaned_path);
+    log(log_writer, format!("cleaned path: {}", cleaned_path));
     let arc_path = format!("arc:{}",    cleaned_path.chars().skip(cleaned_path.find("/").unwrap()).take(cleaned_path.len()).collect::<String>()   );// &cleaned_path.as_str()[cleaned_path.find("/")..]);
-    println!("arc path: {}", arc_path);
+    log(log_writer, format!("arc path: {}", arc_path));
     
 
     // load arc_path      
@@ -72,13 +66,16 @@ fn diff_prc_files() {
     // load mod_path
     let mod_file = prcx::open(path.clone());
 
-    println!("diffing!");
+    log(log_writer, "diffing!".to_string());
     // diff files
 
     // ignore modded files that are not actually in the arc
     let arc_params = match arc_file{
       Ok(value) => value,
-      Err(e) => continue
+      Err(_) => {
+        log(log_writer, format!("ignoring file which is not in the arc: {}", arc_path));
+        continue
+      }
     };
 
     let mod_params = mod_file.unwrap();
@@ -86,13 +83,13 @@ fn diff_prc_files() {
       Ok(value) => match value {
         Some(inner_value) => inner_value,
         None => {
-          println!("found no values: {}", path);
+          log(log_writer, format!("found no values: {}", path));
           failures.push(format!("{}", path));
           continue;
         }
       }
       Err(e) => {
-        println!("could not handle file: {}", path);
+        log(log_writer, format!("could not handle file: {}\nError:{:?}", path, e));
         failures.push(format!("{}", path));
         continue;
       }
@@ -100,14 +97,17 @@ fn diff_prc_files() {
 
 
     let output_pathname = format!("{}{}xml", "sd:/xml/", cleaned_path);
-    println!("output path: {}", output_pathname);
+    log(log_writer, format!("output path: {}", output_pathname));
     let output_path = std::path::Path::new(&output_pathname).parent().unwrap();
     
     std::fs::create_dir_all(output_path).unwrap();
-    let f = File::create(output_pathname).expect("Unable to create file");
+    let f = File::create(output_pathname.clone()).expect("Unable to create file");
     let mut writer = BufWriter::new(f);
-    prcx::write_xml(&diff, &mut writer);
-    writer.flush();
+    match prcx::write_xml(&diff, &mut writer) {
+      Ok(_) => log(log_writer, format!("wrote prcxml to: {}", output_pathname)),
+      Err(e) => log(log_writer, format!("could not write prcxml path: {}\nError: {:?}", path, e))
+    }
+    writer.flush().expect("could not flush???");
     deletions.push(format!("{}", path));
 
   }
@@ -116,7 +116,10 @@ fn diff_prc_files() {
   let should_delete = skyline_web::Dialog::no_yes("would you like to also delete the original .prc files on SD for each generated .prcxml file?");
   if should_delete {
     for path in deletions {
-      std::fs::remove_file(path);
+      match std::fs::remove_file(path.clone()) {
+        Ok(_) => {},
+        Err(e) => log(log_writer, format!("could not delete file: {}\nError: {:?}", path.clone(), e))
+      }
     }
   }
   let mut result_str: String = "PRC conversion to XML is complete. Output will be in /xml/ on root of sd. Failed files:".to_owned();
@@ -134,48 +137,61 @@ pub fn main() {
   skyline::install_hooks!(change_version_string_hook);
 }
 
-pub fn log(log_writer: &mut BufWriter<File>, string: &str) {
+/// log the given string using println! and also to the given buffer
+pub fn log(log_writer: &mut BufWriter<File>, string: String) {
   println!("{}", string);
-  log_writer.write(string.as_bytes());
+  match log_writer.write(string.as_bytes()) {
+    Ok(_) => {},
+    Err(e) => println!("logger failed to write to buffer with string: {}\nError:{:?}", string, e)
+  }
 }
 
+/// this is functionally the "main" of the application, procced by the hook that gets the version string.
 pub fn spawn_thread() {
   thread::spawn(|| {
     let f = File::create("sd:/prc_to_prcxml.log").expect("Unable to create log file");
     let mut log_writer = BufWriter::new(f);
     
-    println!("prc_to_xml main!");
+    log(&mut log_writer, "prc_to_xml main!".to_string());
 
     if Path::new("sd:/xml/").exists() {
       let should_delete = skyline_web::Dialog::no_yes("would you like to delete old xml diffs first?");
       if should_delete {
-        println!("deleting /xml/");
-        std::fs::remove_dir_all("sd:/xml/");
+        log(&mut log_writer, "deleting /xml/".to_string());
+        match std::fs::remove_dir_all("sd:/xml/") {
+          Ok(_) => {},
+          Err(e) => {
+            log(&mut log_writer, format!("could not delete /xml/ dir!\nError: {:?}\n", e))
+          }
+        }
       }
     }
 
     let param_labels = include_str!("../resources/ParamLabels.csv");
     
-    println!("making params file");
+    log(&mut log_writer, "making params file".to_string());
     if !Path::new("sd:/ParamLabels.csv").exists() {
       std::fs::write("sd:/ParamLabels.csv", param_labels).expect("Unable to write params file");
     }
 
     // load the param labels into prcx
-    println!("reading the param labels");
+    log(&mut log_writer, "reading the param labels".to_string());
     let labels = match prcx::hash40::read_custom_labels("sd:/ParamLabels.csv"){
       Ok(ok_labels) => ok_labels,
       Err(e) => {
-        println!("{:?}", e);
+        log(&mut log_writer, format!("{:?}", e));
         return;
       }
     };
-    println!("setting custom labels");
+    log(&mut log_writer, "setting custom labels".to_string());
     prcx::hash40::set_custom_labels(labels.into_iter());
 
-    diff_prc_files();
+    diff_prc_files(&mut log_writer);
 
-    println!("end prc_to_xml main."); // 3
-    log_writer.flush();
+    log(&mut log_writer, "end prc_to_xml main.".to_string()); // 3
+    match log_writer.flush() {
+      Ok(_) => println!("flushed log file."),
+      Err(e) => println!("error while flushing log file: {:?}", e)
+    }
   });
 }
