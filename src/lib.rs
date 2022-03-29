@@ -25,8 +25,15 @@ fn change_version_string_hook(arg: u64, string: *const c_char) {
   }
 }
 
-fn diff_prc_files(log_writer: &mut BufWriter<File>) {
-  log(log_writer, "starting diff of files".to_string());
+fn diff_prc_files(log_writer: &mut BufWriter<File>, extension: &str) {
+
+  // check if user wants to translate this type
+  if !skyline_web::Dialog::no_yes(format!("would you like to translate .{} files on SD?", extension)) {
+    log(log_writer, format!("ignoring .{} files", extension));
+    return;
+  }
+
+  log(log_writer, format!("starting diffing for .{} files", extension));
   let mut paths = vec![]; 
   let mut deletions = vec![];
   let mut failures = vec![];
@@ -40,10 +47,10 @@ fn diff_prc_files(log_writer: &mut BufWriter<File>) {
     }
     let path_entry = entry.expect("no entry found during walk!");
     match path_entry.path().extension() {
-      Some(extension) => {
+      Some(this_extension) => {
         let path_name = path_entry.path().as_os_str().to_str().expect("error while turning path into string!");
         log(log_writer, format!("checking path: {}", path_name));
-        if extension == "prc" {
+        if this_extension == extension {
           log(log_writer, format!("adding path: {}", path_name));
           paths.push(format!("{}", path_name));
         } else {
@@ -105,8 +112,8 @@ fn diff_prc_files(log_writer: &mut BufWriter<File>) {
     let f = File::create(output_pathname.clone()).expect("Unable to create file");
     let mut writer = BufWriter::new(f);
     match prcx::write_xml(&diff, &mut writer) {
-      Ok(_) => log(log_writer, format!("wrote prcxml to: {}", output_pathname)),
-      Err(e) => log(log_writer, format!("could not write prcxml path: {}\nError: {:?}", path, e))
+      Ok(_) => log(log_writer, format!("wrote {}xml to: {}", extension, output_pathname)),
+      Err(e) => log(log_writer, format!("could not write {}xml path: {}\nError: {:?}", extension, path, e))
     }
     writer.flush().expect("could not flush???");
     deletions.push(format!("{}", path));
@@ -116,7 +123,7 @@ fn diff_prc_files(log_writer: &mut BufWriter<File>) {
   }
 
   
-  let should_delete = skyline_web::Dialog::no_yes("would you like to also delete the original .prc files on SD for each generated .prcxml file?");
+  let should_delete = skyline_web::Dialog::no_yes(format!("would you like to also delete the original .{} files on SD for each generated .{}xml file?", extension, extension));
   if should_delete {
     log(log_writer, "begin deleting originals".to_string());
     for path in deletions {
@@ -153,7 +160,7 @@ fn diff_prc_files(log_writer: &mut BufWriter<File>) {
   }
 
 
-  let mut result_str: String = "PRC conversion to XML is complete. Output will be in /xml/ on root of sd. Failed files:".to_owned();
+  let mut result_str: String = "Conversion to XML is complete. Output will be in /xml/ on root of sd. Failed files:".to_owned();
   for path in failures {
     result_str.push_str("\n");
     result_str.push_str(&path);
@@ -218,8 +225,13 @@ pub fn spawn_thread() {
     log(&mut log_writer, "setting custom labels".to_string());
     prcx::hash40::set_custom_labels(labels.into_iter());
 
-    diff_prc_files(&mut log_writer);
+    // handle diff for each file type
+    let extensions = [ "prc", "stdat", "stprm" ];
+    for extension in extensions {
+      diff_prc_files(&mut log_writer, extension);
+    }
 
+    skyline_web::Dialog::ok("PRC to XML plugin operations are complete.");
     log(&mut log_writer, "end prc_to_xml main.".to_string()); // 3
     match log_writer.flush() {
       Ok(_) => println!("flushed log file."),
