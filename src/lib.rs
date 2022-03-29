@@ -40,6 +40,8 @@ fn diff_prc_files(log_writer: &mut BufWriter<File>, extension: &str) {
   log(log_writer, "made paths vec".to_string());
   let dir = walkdir::WalkDir::new("sd:/ultimate/mods/");
   log(log_writer, "made walkable dir".to_string());
+
+  // collect file names we care about from sd
   for entry in dir {
     if entry.is_err() {
       log(log_writer, "error!".to_string());
@@ -49,17 +51,19 @@ fn diff_prc_files(log_writer: &mut BufWriter<File>, extension: &str) {
     match path_entry.path().extension() {
       Some(this_extension) => {
         let path_name = path_entry.path().as_os_str().to_str().expect("error while turning path into string!");
-        log(log_writer, format!("checking path: {}", path_name));
+        //log(log_writer, format!("checking path: {}", path_name));
         if this_extension == extension {
-          log(log_writer, format!("adding path: {}", path_name));
+          log(log_writer, format!("adding file: {}", path_name));
           paths.push(format!("{}", path_name));
         } else {
-          log(log_writer,  "ignoring path.".to_string());
+          //log(log_writer,  "ignoring path.".to_string());
         }
       },
       None => {}
     }
   }
+
+  // iterate across paths that we discovered
   for path in paths {
     log(log_writer, format!("\noriginal path: {}", path));
     let cleaned_path = path.replace("sd:/ultimate/mods/", "");
@@ -188,6 +192,10 @@ pub fn log(log_writer: &mut BufWriter<File>, string: String) {
 /// this is functionally the "main" of the application, procced by the hook that gets the version string.
 pub fn spawn_thread() {
   thread::spawn(|| {
+    if Path::new("sd:/prc_to_prcxml.log").exists() {
+      std::fs::remove_file("sd:/prc_to_prcxml.log");
+    }
+
     let f = File::create("sd:/prc_to_prcxml.log").expect("Unable to create log file");
     let mut log_writer = BufWriter::new(f);
     
@@ -231,7 +239,7 @@ pub fn spawn_thread() {
       diff_prc_files(&mut log_writer, extension);
     }
 
-    skyline_web::Dialog::ok("PRC to XML plugin operations are complete.");
+    skyline_web::Dialog::ok_cancel("PRC to XML plugin operations are complete.");
     log(&mut log_writer, "end prc_to_xml main.".to_string()); // 3
     match log_writer.flush() {
       Ok(_) => println!("flushed log file."),
