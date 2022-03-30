@@ -239,7 +239,7 @@ pub fn spawn_thread() {
       diff_prc_files(&mut log_writer, extension);
     }
 
-    skyline_web::Dialog::ok_cancel("PRC to XML plugin operations are complete.");
+    skyline_web::DialogOk::ok("PRC to XML plugin operations are complete.");
     log(&mut log_writer, "end prc_to_xml main.".to_string()); // 3
     match log_writer.flush() {
       Ok(_) => println!("flushed log file."),
